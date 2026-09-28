@@ -352,8 +352,8 @@ before assuming.
 
 | Subcode | Meaning |
 | --- | --- |
-| `0x00` | Touchpad **double tap** (this repo: wired to "exit"/clear) |
-| `0x01` | Touchpad **single tap** (this repo: Even AI page prev/next; **face-navigation candidate for v2**) |
+| `0x00` | Touchpad **double tap**, reported by the arm that was tapped (this repo: face navigation — right = next, left = previous; closes Even AI while a session is open) |
+| `0x01` | Touchpad **single tap** (this repo: Even AI page prev/next) |
 | `0x02` / `0x03` | Head up / head down |
 | `0x04` / `0x05` | Triple tap (two variants) |
 | `0x06` / `0x07` | **Glasses worn / removed** (only if wear detection `0x27` is on) |
@@ -363,7 +363,7 @@ before assuming.
 | `0x0F` | Case battery percent (`00–0x64`) |
 | `0x11` | BLE paired success |
 | `0x17` / `0x18` | **Touchpad hold start / hold end** (this repo: `0x17` on **left** = Even AI trigger; hold on the right is a plain hold) |
-| `0x1E` / `0x1F` | Dashboard opened / closed |
+| `0x1E` / `0x1F` | Dashboard opened / closed (this repo: `0x1F` re-pushes the active face) |
 | `0x20` | Translate/transcribe toggled |
 | `0x0A`, `0x12` | Unassigned/unknown — surfaced, not dropped |
 

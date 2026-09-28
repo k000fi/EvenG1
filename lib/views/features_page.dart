@@ -29,7 +29,7 @@ class _FeaturesPageState extends State<FeaturesPage> {
               icon: Icons.watch_later_outlined,
               title: 'Even Faces',
               subtitle:
-                  'Uhr, eigener Text und Diagnose auf der Brille — mit Tippen umschalten',
+                  'Watch-Faces mit Komplikationen – Doppeltipp links/rechts zum Wechseln',
               highlighted: true,
               onTap: () => Navigator.push(
                 context,

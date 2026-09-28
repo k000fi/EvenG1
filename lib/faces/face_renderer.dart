@@ -1,16 +1,18 @@
-import 'dart:typed_data';
 import 'dart:ui' show ImageByteFormat, PictureRecorder;
 
-import 'package:demo_ai_even/faces/face_defs.dart';
+import 'package:demo_ai_even/faces/face_data.dart';
+import 'package:demo_ai_even/faces/watch_faces.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-/// Turns a [Face] + [FaceData] into the exact byte stream the G1 firmware
-/// expects for a 0x15 BMP transfer:
+/// Turns a [WatchFace] + its complications + [FaceData] into the exact byte
+/// stream the G1 firmware expects for a 0x15 BMP transfer:
 ///
 ///   1. paint the face into a 576 x 136 canvas (white on black)
 ///   2. rasterize to RGBA
-///   3. Floyd-Steinberg dither to 1 bit (1 = pixel ON = green)
+///   3. threshold to 1 bit (1 = pixel ON = green). Faces are line art and
+///      text, and a hard threshold keeps their edges crisp; error-diffusion
+///      dithering turned the anti-aliased glyph edges into pixel noise.
 ///   4. pack to a 9856-byte BMP: 64-byte header (byte-identical to
 ///      assets/images/image_2.bmp) + 9792 bottom-up rows of 72 bytes,
 ///      MSB-first, **inverted** (see [encodeBmp]).
@@ -41,16 +43,28 @@ class FaceRenderer {
     return Uint8List.fromList(h);
   }
 
-  /// Renders the face to a 1-bit row-major bitmap (width*height bytes,
-  /// 1 = ON). Row 0 is the top of the picture.
-  Future<Uint8List> renderBits(Face face, FaceData data) async {
+  /// Renders [face] with its complications to a 1-bit row-major bitmap
+  /// (width*height bytes, 1 = ON). Row 0 is the top of the picture.
+  Future<Uint8List> renderBits(
+          WatchFace face, List<String> slotIds, FaceData data) =>
+      rasterize((canvas) => paintWatchFace(canvas, face, slotIds, data));
+
+  /// Full pipeline: face -> 9856-byte BMP file bytes.
+  Future<Uint8List> renderBmp(
+      WatchFace face, List<String> slotIds, FaceData data) async {
+    final bits = await renderBits(face, slotIds, data);
+    return encodeBmp(bits, header: await header());
+  }
+
+  /// Runs [paint] on a black 576 x 136 canvas and returns the 1-bit result.
+  static Future<Uint8List> rasterize(void Function(Canvas canvas) paint) async {
     final recorder = PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.drawRect(
       Rect.fromLTWH(0.0, 0.0, width.toDouble(), height.toDouble()),
       Paint()..color = const Color(0xFF000000),
     );
-    face.paint(canvas, Size(width.toDouble(), height.toDouble()), data);
+    paint(canvas);
     final picture = recorder.endRecording();
     final image = await picture.toImage(width, height);
     final byteData = await image.toByteData(format: ImageByteFormat.rawRgba);
@@ -59,45 +73,17 @@ class FaceRenderer {
     if (byteData == null) {
       throw StateError('toByteData returned null');
     }
-
-    final rgba = byteData.buffer.asUint8List(byteData.offsetInBytes);
-    return floydSteinberg(rgba, width, height);
+    return threshold(byteData.buffer.asUint8List(byteData.offsetInBytes), width, height);
   }
 
-  /// Full pipeline: face -> 9856-byte BMP file bytes.
-  Future<Uint8List> renderBmp(Face face, FaceData data,
-      {Uint8List? header}) async {
-    final bits = await renderBits(face, data);
-    final hdr = header ?? await this.header();
-    return encodeBmp(bits, header: hdr);
-  }
-
-  /// Floyd-Steinberg dither of RGBA to 1 bit (row-major, MSB of each
-  /// 8-pixel group unused until packing).
-  static Uint8List floydSteinberg(Uint8List rgba, int w, int h) {
+  /// RGBA -> 1 bit (row-major): a pixel is ON when its mean channel value is
+  /// at least [level].
+  static Uint8List threshold(Uint8List rgba, int w, int h, {int level = 128}) {
     final n = w * h;
-    final gray = Float64List(n);
+    final bits = Uint8List(n);
     for (var i = 0; i < n; i++) {
       final r = 4 * i;
-      gray[i] = (rgba[r] + rgba[r + 1] + rgba[r + 2]) / 3.0;
-    }
-    final bits = Uint8List(n);
-    for (var y = 0; y < h; y++) {
-      final row = y * w;
-      for (var x = 0; x < w; x++) {
-        final i = row + x;
-        final v = gray[i];
-        final on = v >= 127.5 ? 1 : 0;
-        bits[i] = on;
-        final err = v - (on == 1 ? 255.0 : 0.0);
-        if (err == 0) continue;
-        if (x + 1 < w) gray[i + 1] += err * 7 / 16;
-        if (y + 1 < h) {
-          if (x > 0) gray[i + w - 1] += err * 3 / 16;
-          gray[i + w] += err * 5 / 16;
-          if (x + 1 < w) gray[i + w + 1] += err * 1 / 16;
-        }
-      }
+      if (rgba[r] + rgba[r + 1] + rgba[r + 2] >= 3 * level) bits[i] = 1;
     }
     return bits;
   }

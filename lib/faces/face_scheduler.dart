@@ -1,27 +1,31 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/controllers/bmp_update_manager.dart';
 import 'package:demo_ai_even/services/keepalive_service.dart';
 import 'package:demo_ai_even/services/proto.dart';
+import 'package:demo_ai_even/services/weather_service.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'face_defs.dart';
+import 'complications.dart';
+import 'face_data.dart';
 import 'face_renderer.dart';
+import 'watch_faces.dart';
 
-/// Drives the Apple-Watch-style face loop:
+/// Drives the watch faces on the glasses:
 ///
-///   - renders the active face (576x136, 1-bit) and pushes it to BOTH arms
-///     in parallel via the BMP pipeline
-///   - per-face refresh cadence (clock: on the minute; text: on change;
-///     link: every N seconds)
-///   - single-tap L/R navigation (wrap-around), EvenAI long-press always wins
-///   - pauses rendering while the glasses are off the face (wear events)
-///   - keeps an eye on link health (success counter + LINK OK / NO LINK)
+///   - renders the active face with its complications (576x136, 1-bit) and
+///     pushes it to both arms through the ordered dual-arm BMP flow
+///   - pushes only when the visible content changes (the minute, or what a
+///     complication shows), checked once per second
+///   - double tap left/right cycles the faces (wrap-around)
+///   - pauses while the glasses are off the face (wear events)
 ///   - starts/stops the iOS silent-audio keep-alive
 ///
-/// All settings are persisted via SharedPreferences.
+/// Settings, including which complication sits in which slot, persist via
+/// SharedPreferences.
 class FaceScheduler extends GetxService {
   FaceScheduler._();
 
@@ -29,18 +33,32 @@ class FaceScheduler extends GetxService {
       Get.put(FaceScheduler._(), permanent: true);
   static FaceScheduler get get => Get.find<FaceScheduler>();
 
-  /// Face order; single-tap left/right cycles through this list (wrap-around).
-  static const List<Face> faces = [ClockFace(), TextFace(), LinkFace()];
+  /// Face order for double-tap navigation.
+  static const List<WatchFace> faces = [
+    ModularFace(),
+    UtilityFace(),
+    CompactFace(),
+    NumeralsFace(),
+  ];
+
+  /// Floor between two pushes, so the link gets breathing room.
+  static const _minGap = Duration(seconds: 2);
+
+  /// After a failed push, wait this long before trying again.
+  static const _retryAfter = Duration(seconds: 10);
 
   final BmpUpdateManager _bmp = BmpUpdateManager();
   final FaceRenderer _renderer = FaceRenderer();
 
   // ---- settings (persisted) ----
-  final RxBool facesEnabled = true.obs; // on by default: G1 behaves like a watch
-  final RxBool keepAliveEnabled = true.obs; // silent-tone keep-alive, default ON
-  final RxInt activeFaceIndex = 0.obs; // 0..faces.length-1
+  final RxBool facesEnabled = true.obs;
+  final RxBool keepAliveEnabled = true.obs;
+  final RxInt activeFaceIndex = 0.obs;
   final RxString customText = 'Hallo Even!'.obs;
-  final RxInt linkIntervalSec = 2.obs; // clamped to 2..10
+
+  /// face id -> complication id per slot. Missing entries use the face's
+  /// defaults.
+  final RxMap<String, List<String>> slotConfig = <String, List<String>>{}.obs;
 
   // ---- runtime state ----
   final RxBool glassesWorn = true.obs;
@@ -53,16 +71,49 @@ class FaceScheduler extends GetxService {
   bool _connected = false;
   bool _initDone = false;
   Timer? _tick;
-  int _tickCounter = 0;
-  int _lastMinute = -1;
-  int _lastLinkPushTick = -100000;
-  String _lastPushedText = '';
+  String _pushedKey = '';
+  DateTime _notBefore = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get connected => _connected;
-  Face get activeFace => faces[activeFaceIndex.value % faces.length];
+  WatchFace get activeFace => faces[activeFaceIndex.value % faces.length];
 
-  /// Loads persisted settings, wires live observers, starts if already
-  /// connected. Call once at app startup.
+  /// Complication ids for every slot of [face].
+  List<String> slotsFor(WatchFace face) {
+    final saved = slotConfig[face.id];
+    return [
+      for (var i = 0; i < face.slots.length; i++)
+        (saved != null && i < saved.length && Complications.isKnown(saved[i]))
+            ? saved[i]
+            : face.slots[i].defaultComplication,
+    ];
+  }
+
+  void setSlot(WatchFace face, int slot, String complicationId) {
+    final ids = slotsFor(face)..[slot] = complicationId;
+    slotConfig[face.id] = ids;
+    _persist();
+  }
+
+  /// Everything the faces can show, right now.
+  FaceData snapshot() {
+    final ws = Get.isRegistered<WeatherService>() ? WeatherService.get : null;
+    return FaceData(
+      now: DateTime.now(),
+      connected: _connected,
+      glassesWorn: glassesWorn.value,
+      lastSuccessAt: lastSuccessAt.value,
+      batteryL: batteryL.value,
+      batteryR: batteryR.value,
+      customText: customText.value,
+      weatherPlace: ws?.place.value?.name,
+      weather: ws?.weather.value,
+      worldPlace: ws?.worldPlace.value?.name,
+      worldOffsetSec: ws?.worldOffsetSec.value,
+    );
+  }
+
+  /// Loads persisted settings, wires observers, starts if already connected.
+  /// Call once at app startup.
   Future<void> init() async {
     if (_initDone) return;
     _initDone = true;
@@ -73,7 +124,17 @@ class FaceScheduler extends GetxService {
       keepAliveEnabled.value = prefs.getBool('faces.keepalive') ?? true;
       activeFaceIndex.value = (prefs.getInt('faces.active') ?? 0) % faces.length;
       customText.value = prefs.getString('faces.text') ?? 'Hallo Even!';
-      linkIntervalSec.value = _clampInterval(prefs.getInt('faces.linkInterval') ?? 2);
+      final raw = prefs.getString('faces.slots');
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          slotConfig.assignAll({
+            for (final e in decoded.entries)
+              if (e.key is String && e.value is List)
+                e.key as String: [for (final v in e.value as List) '$v'],
+          });
+        }
+      }
     } catch (e) {
       print('FaceScheduler init failed: $e');
     }
@@ -87,31 +148,12 @@ class FaceScheduler extends GetxService {
       _syncKeepAlive();
     });
     activeFaceIndex.listen((_) => _persist());
-    customText.listen((_) {
-      _persist();
-      // live edit: refresh immediately while the text face is on the glasses
-      if (activeFaceIndex.value == 1 &&
-          _connected &&
-          facesEnabled.value &&
-          glassesWorn.value) {
-        _lastPushedText = '';
-        pushActiveFace();
-      }
-    });
-    linkIntervalSec.listen((_) {
-      linkIntervalSec.value = _clampInterval(linkIntervalSec.value);
-      _persist();
-    });
+    customText.listen((_) => _persist());
 
     if (BleManager.get().isConnected) {
       onConnected();
     }
   }
-
-  // ---------------------------------------------------------------- settings
-
-  /// int.clamp() returns num - keep the type int without a cast.
-  static int _clampInterval(int v) => v < 2 ? 2 : (v > 10 ? 10 : v);
 
   Future<void> _persist() async {
     try {
@@ -121,7 +163,7 @@ class FaceScheduler extends GetxService {
         prefs.setBool('faces.keepalive', keepAliveEnabled.value),
         prefs.setInt('faces.active', activeFaceIndex.value),
         prefs.setString('faces.text', customText.value),
-        prefs.setInt('faces.linkInterval', linkIntervalSec.value),
+        prefs.setString('faces.slots', jsonEncode(slotConfig)),
       ]);
     } catch (e) {
       print('FaceScheduler persist failed: $e');
@@ -130,14 +172,7 @@ class FaceScheduler extends GetxService {
 
   void _onEnabledChanged() {
     if (facesEnabled.value) {
-      if (_connected) {
-        // onConnected() only starts the pump when faces were already on, so
-        // enabling them later has to start it here - otherwise the first
-        // frame would be the last one.
-        _startTicking();
-        _lastMinute = -1;
-        pushActiveFace();
-      }
+      forceRefresh();
     } else if (_connected) {
       // free the glasses so the user does not get stuck on a stale face
       exitToDashboard();
@@ -150,12 +185,12 @@ class FaceScheduler extends GetxService {
   void onConnected() {
     if (_connected) return;
     _connected = true;
-    _lastMinute = -1;
-    _lastLinkPushTick = -100000;
-    if (facesEnabled.value) {
-      _startTicking();
-      pushActiveFace();
-    }
+    _pushedKey = '';
+    _notBefore = DateTime.fromMillisecondsSinceEpoch(0);
+    // The pump runs for the whole connection and checks every condition
+    // itself - no code path can leave the faces without a ticker.
+    _tick?.cancel();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
     _syncKeepAlive();
   }
 
@@ -170,15 +205,12 @@ class FaceScheduler extends GetxService {
 
   // ----------------------------------------------------- wear + battery data
 
-  /// 0xF5 idx 06 = worn / 07 = removed. While not worn we pause the face
-  /// pump (battery saver) and push again as soon as the glasses are worn.
+  /// 0xF5 06 = worn / 07 = removed. While not worn nothing is pushed
+  /// (battery saver); putting the glasses on shows the current face again.
   void onWearChanged(bool worn) {
     if (glassesWorn.value == worn) return;
     glassesWorn.value = worn;
-    if (worn && _connected && facesEnabled.value) {
-      _lastMinute = -1;
-      pushActiveFace();
-    }
+    if (worn) forceRefresh();
   }
 
   /// Battery percent per side from the 0x2C report (also pushed unsolicited).
@@ -193,83 +225,57 @@ class FaceScheduler extends GetxService {
 
   // ------------------------------------------------------------- navigation
 
-  void nextFace() => _cycle(1);
-  void prevFace() => _cycle(-1);
+  void nextFace() => selectFace(activeFaceIndex.value + 1);
+  void prevFace() => selectFace(activeFaceIndex.value - 1);
 
-  void _cycle(int delta) {
-    selectFace((activeFaceIndex.value + delta) % faces.length);
-  }
-
-  /// Selects a face (from tap navigation or the settings screen).
+  /// Selects a face (double tap on the glasses or the settings screen) and
+  /// shows it right away.
   void selectFace(int index) {
     activeFaceIndex.value =
         ((index % faces.length) + faces.length) % faces.length;
-    if (_connected && facesEnabled.value && glassesWorn.value) {
-      _lastMinute = -1;
-      pushActiveFace();
-    }
+    forceRefresh();
+  }
+
+  /// Re-sends the active face even if nothing changed - e.g. after the
+  /// firmware drew its own screen over it.
+  void forceRefresh() {
+    _pushedKey = '';
+    _notBefore = DateTime.fromMillisecondsSinceEpoch(0);
+    unawaited(pushActiveFace());
   }
 
   // ------------------------------------------------------------------ pump
 
-  void _startTicking() {
-    _tick?.cancel();
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
-  }
+  bool get _canPush =>
+      _connected &&
+      facesEnabled.value &&
+      glassesWorn.value &&
+      !pushing.value &&
+      !BmpUpdateManager.isTransferring;
 
   void _onTick() {
-    if (!_connected || !facesEnabled.value || !glassesWorn.value) return;
-    if (pushing.value) return; // a push takes several seconds; never overlap
-    _tickCounter++;
-
-    final now = DateTime.now();
-    final index = activeFaceIndex.value;
-    if (index == 0) {
-      // clock: on the minute
-      if (now.minute != _lastMinute) {
-        _lastMinute = now.minute;
-        pushActiveFace();
-      }
-    } else if (index == 1) {
-      // custom text: on change
-      if (customText.value != _lastPushedText) {
-        _lastPushedText = customText.value;
-        pushActiveFace();
-      }
-    } else {
-      // link/diagnostics: every N seconds (throughput is the real limiter)
-      if (_tickCounter - _lastLinkPushTick >= linkIntervalSec.value) {
-        _lastLinkPushTick = _tickCounter;
-        pushActiveFace();
-      }
+    if (!_canPush || DateTime.now().isBefore(_notBefore)) return;
+    final face = activeFace;
+    final key = faceContentKey(face, slotsFor(face), snapshot());
+    if (key != _pushedKey) {
+      unawaited(pushActiveFace());
     }
   }
 
-  /// Renders the active face and pushes it to both arms through the ordered
-  /// dual-arm flow (see BmpUpdateManager.updateBmpBothArms). If exactly one
-  /// arm drops out, that arm is re-sent once - otherwise the two halves would
-  /// show different frames until the next refresh, which on the clock face is
-  /// a full minute away.
+  /// Renders the active face and pushes it to both arms. If exactly one arm
+  /// drops out, that arm is re-sent once - otherwise the halves would show
+  /// different frames until the next change.
   Future<void> pushActiveFace() async {
-    if (!_connected || !facesEnabled.value || pushing.value) return;
-    if (BmpUpdateManager.isTransferring) return; // e.g. the BMP demo page
+    if (!_canPush) return;
     pushing.value = true;
-    final now = DateTime.now();
+    var ok = false;
     try {
       final face = activeFace;
-      final data = FaceData(
-        now: now,
-        connected: true,
-        glassesWorn: glassesWorn.value,
-        linkCounter: linkCounter.value,
-        lastSuccessAt: lastSuccessAt.value,
-        linkIntervalSec: linkIntervalSec.value,
-        batteryL: batteryL.value,
-        batteryR: batteryR.value,
-        customText: customText.value,
-      );
-      final bits = await _renderer.renderBits(face, data);
-      final bmp = FaceRenderer.encodeBmp(bits, header: await _renderer.header());
+      final slots = slotsFor(face);
+      final data = snapshot();
+      final key = faceContentKey(face, slots, data);
+      final bmp = await _renderer.renderBmp(face, slots, data);
+
       var res = await _bmp.updateBmpBothArms(bmp);
       if (res.left != res.right) {
         final lr = res.left ? 'R' : 'L';
@@ -277,7 +283,9 @@ class FaceScheduler extends GetxService {
         final retry = await _bmp.updateBmp(lr, bmp);
         res = (left: res.left || retry, right: res.right || retry);
       }
-      if (res.left && res.right) {
+      ok = res.left && res.right;
+      if (ok) {
+        _pushedKey = key;
         linkCounter.value++;
         lastSuccessAt.value = DateTime.now();
       } else {
@@ -286,9 +294,7 @@ class FaceScheduler extends GetxService {
     } catch (e) {
       print('FaceScheduler push failed: $e');
     } finally {
-      _lastMinute = DateTime.now().minute;
-      _lastPushedText = customText.value;
-      _lastLinkPushTick = _tickCounter;
+      _notBefore = DateTime.now().add(ok ? _minGap : _retryAfter);
       pushing.value = false;
     }
   }
@@ -308,17 +314,17 @@ class FaceScheduler extends GetxService {
   void _syncKeepAlive() {
     final shouldRun =
         facesEnabled.value && _connected && keepAliveEnabled.value;
-    KeepAliveService.get.set(shouldRun);
+    if (Get.isRegistered<KeepAliveService>()) {
+      KeepAliveService.get.set(shouldRun);
+    }
   }
 
   @override
   void onClose() {
     _tick?.cancel();
     _tick = null;
-    try {
+    if (Get.isRegistered<KeepAliveService>()) {
       KeepAliveService.get.stop();
-    } catch (_) {
-      // not registered (e.g. in tests) - nothing to stop
     }
     super.onClose();
   }

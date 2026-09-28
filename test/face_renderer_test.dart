@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:demo_ai_even/faces/face_defs.dart';
+import 'package:demo_ai_even/faces/face_data.dart';
 import 'package:demo_ai_even/faces/face_renderer.dart';
+import 'package:demo_ai_even/faces/face_scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Unit tests for the pure-Dart parts of the face pipeline:
@@ -31,50 +32,33 @@ void main() {
     return out;
   }
 
-  group('floydSteinberg', () {
-    test('pure black and pure white', () {
-      final black = Uint8List(4 * w * h);
-      final white = Uint8List(4 * w * h)..fillRange(0, 4 * w * h, 255);
-      expect(FaceRenderer.floydSteinberg(black, w, h).toSet(), {0});
-      expect(FaceRenderer.floydSteinberg(white, w, h).toSet(), {1});
-    });
-
-    test('sharp half split stays exact (flat areas do not dither)', () {
-      final rgba = Uint8List(4 * w * h);
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          final v = x < w ~/ 2 ? 0 : 255;
-          final i = 4 * (y * w + x);
-          rgba[i] = rgba[i + 1] = rgba[i + 2] = v;
-          rgba[i + 3] = 255;
-        }
-      }
-      final bits = FaceRenderer.floydSteinberg(rgba, w, h);
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          expect(bits[y * w + x], x < w ~/ 2 ? 0 : 1, reason: 'pixel ($x,$y)');
-        }
-      }
-    });
-
-    test('mid gray dithers instead of becoming a flat block', () {
+  group('threshold', () {
+    Uint8List gray(int v) {
       final rgba = Uint8List(4 * w * h);
       for (var i = 0; i < w * h; i++) {
-        rgba[4 * i] = rgba[4 * i + 1] = rgba[4 * i + 2] = 100;
+        rgba[4 * i] = rgba[4 * i + 1] = rgba[4 * i + 2] = v;
         rgba[4 * i + 3] = 255;
       }
-      final bits = FaceRenderer.floydSteinberg(rgba, w, h);
-      var ones = 0;
-      for (final b in bits) {
-        ones += b;
-      }
-      final frac = ones / bits.length;
-      // ~100/255 = 39 % coverage expected, clearly dithered
-      expect(frac, greaterThan(0.2));
-      expect(frac, lessThan(0.6));
-      expect(bits[0], 0); // 100 < 127.5 threshold
-      expect(bits.contains(0), isTrue);
-      expect(bits.contains(1), isTrue);
+      return rgba;
+    }
+
+    test('black stays off, white turns on', () {
+      expect(FaceRenderer.threshold(gray(0), w, h).toSet(), {0});
+      expect(FaceRenderer.threshold(gray(255), w, h).toSet(), {1});
+    });
+
+    test('cuts at mid gray - no dithering noise', () {
+      expect(FaceRenderer.threshold(gray(127), w, h).toSet(), {0});
+      expect(FaceRenderer.threshold(gray(128), w, h).toSet(), {1});
+    });
+
+    test('uses the mean of the colour channels', () {
+      final rgba = Uint8List(4 * w * h);
+      rgba[0] = 255; // pure red pixel: mean 85 -> off
+      rgba[4] = rgba[5] = 255; // yellow: mean 170 -> on
+      final bits = FaceRenderer.threshold(rgba, w, h);
+      expect(bits[0], 0);
+      expect(bits[1], 1);
     });
   });
 
@@ -139,32 +123,31 @@ void main() {
     });
   });
 
-  group('TextFace', () {
-    testWidgets('long text stays inside the 136 px panel', (tester) async {
+  group('watch faces', () {
+    testWidgets('every face renders inside the panel', (tester) async {
       final data = FaceData(
-        now: DateTime(2026, 9, 24, 12, 0, 0),
+        now: DateTime(2026, 9, 28, 14, 5),
         connected: true,
-        glassesWorn: true,
-        linkCounter: 0,
-        lastSuccessAt: null,
-        linkIntervalSec: 2,
-        customText: List.generate(20, (i) => 'line $i').join('\n'),
+        batteryL: 80,
+        batteryR: 75,
+        customText: 'Hallo Even!',
       );
-      // picture.toImage() completes on a real engine callback, which the
-      // fake async zone of testWidgets never delivers - hence runAsync.
-      final bits = await tester.runAsync(
-        () => FaceRenderer().renderBits(const TextFace(), data),
-      );
-      expect(bits, isNotNull);
-      // maxLines keeps the block centered; the outermost rows must stay off.
-      for (final y in [0, h - 1]) {
-        for (var x = 0; x < w; x++) {
-          expect(bits![y * w + x], 0,
-              reason: 'pixel ($x,$y) outside the block');
+      for (final face in FaceScheduler.faces) {
+        final slots = [for (final s in face.slots) s.defaultComplication];
+        // picture.toImage() completes on a real engine callback, which the
+        // fake async zone of testWidgets never delivers - hence runAsync.
+        final bits = await tester.runAsync(
+          () => FaceRenderer().renderBits(face, slots, data),
+        );
+        expect(bits, isNotNull, reason: face.id);
+        expect(bits!.contains(1), isTrue, reason: '${face.id} drew nothing');
+        // the layouts keep a margin: outermost rows stay dark
+        for (final y in [0, h - 1]) {
+          for (var x = 0; x < w; x++) {
+            expect(bits[y * w + x], 0, reason: '${face.id}: pixel ($x,$y)');
+          }
         }
       }
-      // and something was actually drawn
-      expect(bits!.contains(1), isTrue);
     });
   });
 

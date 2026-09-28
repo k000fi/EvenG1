@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:demo_ai_even/ble_manager.dart';
+import 'package:demo_ai_even/faces/face_format.dart';
 import 'package:demo_ai_even/faces/face_scheduler.dart';
 import 'package:demo_ai_even/services/evenai.dart';
 import 'package:demo_ai_even/views/even_list_page.dart';
@@ -51,12 +52,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _facesTile() => Obx(() {
         final fs = FaceScheduler.get;
-        final face = FaceScheduler.faces[fs.activeFaceIndex.value];
+        final face = fs.activeFace;
         final last = fs.lastSuccessAt.value;
         final connected = BleManager.get().isConnected;
-        final ok = last != null &&
-            DateTime.now().difference(last).inSeconds <
-                3 * fs.linkIntervalSec.value;
         final String status;
         final Color statusColor;
         if (!fs.facesEnabled.value) {
@@ -65,12 +63,15 @@ class _HomePageState extends State<HomePage> {
         } else if (!connected) {
           status = 'nicht verbunden';
           statusColor = Colors.black38;
-        } else if (ok) {
-          status = 'live  ·  #${fs.linkCounter.value}';
+        } else if (fs.pushing.value) {
+          status = 'sendet …';
+          statusColor = const Color(0xFF2E7D32);
+        } else if (last != null) {
+          status = 'live · letztes Bild ${Fmt.hhmm(last)}';
           statusColor = const Color(0xFF2E7D32);
         } else {
-          status = 'keine Verbindung';
-          statusColor = Colors.red;
+          status = 'wartet auf das erste Bild';
+          statusColor = Colors.black54;
         }
         return Material(
           color: Colors.white,

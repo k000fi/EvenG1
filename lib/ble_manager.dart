@@ -277,20 +277,22 @@ class BleManager {
       final notifyIndex = res.data[1].toInt();
 
       switch (notifyIndex) {
-        case 0:
-          App.get.exitAll();
-          break;
-        case 1: // single tap
-          // Faces mode wins for single taps unless EvenAI is actively
-          // running (long-press flow) - then EvenAI paging keeps working.
+        case 0: // double tap - arrives from the arm that was tapped
+          // With faces on, double tap left/right flips through the faces.
+          // An open Even AI session keeps the original meaning: close it.
           if (FaceScheduler.get.facesEnabled.value &&
-              !EvenAI.isRunning) {
+              !EvenAI.isEvenAIOpen.value) {
             if (res.lr == 'L') {
               FaceScheduler.get.prevFace();
             } else {
               FaceScheduler.get.nextFace();
             }
-          } else if (res.lr == 'L') {
+          } else {
+            App.get.exitAll();
+          }
+          break;
+        case 1: // single tap: Even AI paging
+          if (res.lr == 'L') {
             EvenAI.get.lastPageByTouchpad();
           } else {
             EvenAI.get.nextPageByTouchpad();
@@ -301,6 +303,9 @@ class BleManager {
           break;
         case 7: // removed
           FaceScheduler.get.onWearChanged(false);
+          break;
+        case 31: // 0x1F: firmware dashboard closed - bring the face back
+          FaceScheduler.get.forceRefresh();
           break;
         case 23: //BleEvent.evenaiStart:
           EvenAI.get.toStartEvenAIByOS();

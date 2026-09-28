@@ -27,32 +27,49 @@ The core process includes three steps:
 For a specific example, click the icon in the upper right corner of the App homepage to enter the Features page. The page contains three buttons: BMP 1, BMP 2, and Exit, which represent the transmission and display of picture 1, the transmission and display of picture 2, and the exit of picture transmission and display.
 
 
-## Even Faces (watch-like mode)
+## Even Faces (watchOS-style faces)
 
-Even Faces turns the G1 into an Apple-Watch-style display: the app continuously
-renders a *face* to the 576x136 panel of **both** arms (the same 1-bit BMP
-pipeline as Image Sending, L and R in parallel).
+Even Faces turns the G1 into a watch: the app renders a watchOS-style *face*
+with *complications* to the 576x136 panel of **both** arms (1-bit BMP, same
+pipeline as Image Sending) and keeps it current.
 
-**Faces** (cycle through them with one tap):
-- **Clock** — `HH:MM` plus short date (e.g. `Do, 24.09.`), refreshed on the minute.
-- **Text** — your own multi-line text (edited in the app, up to ~5 lines),
-  refreshed on change.
-- **Link / Diagnostics** — `HH:MM:SS`, push success counter, `LINK OK #n` /
-  `NO LINK` (based on the last successful L+R push) and battery per arm
-  (from the 0x2C reports). Refresh interval configurable, 2–10 s.
+**Faces** — each has fixed slots you fill with complications:
 
-**Navigation** (touchpad meanings are user-remappable on the glasses — with the
-factory mapping):
-- single tap **left** touchpad → previous face, single tap **right** → next face
-  (wrap-around).
-- While Even AI is actively running (long-press flow), single taps keep their
-  Even AI paging behavior; otherwise Faces mode wins.
+| Face | Base | Slots |
+| --- | --- | --- |
+| **Modular** | big digital time + date | 4 small (2x2 grid) |
+| **Utility** | analog dial in the middle | 2 small left, 2 small right |
+| **Kompakt** | small analog dial | 1 large |
+| **Numerals** | huge digits | 2 small |
 
-**Settings** (home page tile "Even Faces" or Features → Even Faces):
-master switch, face picker, a live preview of exactly what the glasses show,
-custom text editor, link-face refresh interval, and the keep-alive toggle.
-Everything is persisted via SharedPreferences. Faces are **on by default** —
-on connect the G1 immediately behaves like a watch.
+**Complications** (any complication fits any slot; small slots show label +
+value + icon, the large slot a title plus up to three lines):
+Datum · Uhrzeit · Kalenderwoche · Wetter · Sonne (next sunrise/sunset) · Mond
+(phase + illumination) · Brillen-Akku (both arms) · Weltzeit · Eigener Text ·
+Verbindung (diagnostics) · Leer.
+
+Weather, sun and world clock use [Open-Meteo](https://open-meteo.com) (free,
+no API key). Places are picked by name in the app, so no location permission is
+needed; data refreshes every 30 minutes and the last result is cached.
+
+**Navigation** (with the factory touchpad mapping):
+- **double tap right** → next face, **double tap left** → previous face
+  (wrap-around). While an Even AI session is open, double tap keeps its
+  original meaning and closes it.
+- single tap stays with Even AI (page back/forward).
+- If the glasses react to double tap with something else (dashboard,
+  translate, ...), set the double-tap gesture to "None" in the Even app.
+
+**Settings** (home page tile "Even Faces" or Features → Even Faces): master
+switch, a face gallery, a slot editor with a live preview of exactly what the
+glasses show, weather place and world-clock city search, custom text and the
+keep-alive toggle. Everything persists via SharedPreferences. Faces are **on
+by default** — on connect the G1 immediately behaves like a watch.
+
+**When the glasses update:** once a second the app computes what the face
+would show; only when that changes (the minute, or a complication's value) is
+a new frame pushed. At most one push per 2 s; after a failed push it waits
+10 s.
 
 **How it stays alive in the background:**
 - `UIBackgroundModes: [bluetooth-central, audio]` in the iOS app.
@@ -71,14 +88,13 @@ the official Even G1 app forever).
   re-pushes the face as soon as they are worn again.
 - Disabling Faces while connected sends 0x18 (exit) so the glasses return to
   their dashboard instead of showing a stale face.
+- When the firmware dashboard closes (0xF5 1F), the face is pushed again.
 
 **Known limitations:**
-- A full face push (51 BMP chunks per arm + finish + CRC) takes ~5–8 s over
-  BLE, so the *effective* refresh of the Link face is throughput-limited
-  regardless of the configured interval (the interval acts as a lower bound).
-- The touchpad gestures (single/double/triple tap, long press) can be
-  re-mapped in the glasses' own settings; Faces uses single tap L/R.
-- HealthKit, notifications and other system data are not connected yet.
+- A full frame (51 BMP chunks per arm + end marker + CRC) takes about a second
+  per arm, so there is no second hand - faces run at minute precision.
+- HealthKit (activity rings, steps), calendar and notifications are not
+  connected yet.
 
 
 ## Text Sending
