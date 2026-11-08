@@ -39,6 +39,7 @@ class FaceScheduler extends GetxService {
     UtilityFace(),
     CompactFace(),
     NumeralsFace(),
+    MatrixFace(),
   ];
 
   /// Floor between two pushes, so the link gets breathing room.
@@ -46,6 +47,11 @@ class FaceScheduler extends GetxService {
 
   /// After a failed push, wait this long before trying again.
   static const _retryAfter = Duration(seconds: 10);
+  static const _matrixIntervals = [
+    Duration(seconds: 4),
+    Duration(seconds: 2),
+    Duration(seconds: 1),
+  ];
 
   final BmpUpdateManager _bmp = BmpUpdateManager();
   final FaceRenderer _renderer = FaceRenderer();
@@ -53,6 +59,8 @@ class FaceScheduler extends GetxService {
   // ---- settings (persisted) ----
   final RxBool facesEnabled = true.obs;
   final RxBool keepAliveEnabled = true.obs;
+  final RxBool matrixAnimating = false.obs;
+  final RxInt matrixSpeed = 1.obs;
   final RxInt activeFaceIndex = 0.obs;
   final RxString customText = 'Hallo Even!'.obs;
 
@@ -97,14 +105,21 @@ class FaceScheduler extends GetxService {
   /// Everything the faces can show, right now.
   FaceData snapshot() {
     final ws = Get.isRegistered<WeatherService>() ? WeatherService.get : null;
+    final now = DateTime.now();
+    final speed =
+      matrixSpeed.value.clamp(0, _matrixIntervals.length - 1).toInt();
+    final matrixFrame = activeFace is MatrixFace && matrixAnimating.value
+        ? now.millisecondsSinceEpoch ~/ _matrixIntervals[speed].inMilliseconds
+        : null;
     return FaceData(
-      now: DateTime.now(),
+      now: now,
       connected: _connected,
       glassesWorn: glassesWorn.value,
       lastSuccessAt: lastSuccessAt.value,
       batteryL: batteryL.value,
       batteryR: batteryR.value,
       customText: customText.value,
+      matrixFrame: matrixFrame,
       weatherPlace: ws?.place.value?.name,
       weather: ws?.weather.value,
       worldPlace: ws?.worldPlace.value?.name,
@@ -233,7 +248,46 @@ class FaceScheduler extends GetxService {
   void selectFace(int index) {
     activeFaceIndex.value =
         ((index % faces.length) + faces.length) % faces.length;
+    if (activeFace is! MatrixFace) matrixAnimating.value = false;
     forceRefresh();
+  }
+
+  /// Shows the Matrix face through the normal serialized BMP update path.
+  void showMatrix({required bool animate, required int speed}) {
+    matrixAnimating.value = animate;
+    matrixSpeed.value =
+      speed.clamp(0, _matrixIntervals.length - 1).toInt();
+    activeFaceIndex.value = faces.indexWhere((face) => face is MatrixFace);
+    if (facesEnabled.value) {
+      forceRefresh();
+    } else {
+      facesEnabled.value = true;
+    }
+  }
+
+  void setMatrixAnimating(bool animate) {
+    if (matrixAnimating.value == animate) return;
+    matrixAnimating.value = animate;
+    if (activeFace is MatrixFace) forceRefresh();
+  }
+
+  void setMatrixSpeed(int speed) {
+    final value = speed.clamp(0, _matrixIntervals.length - 1).toInt();
+    if (matrixSpeed.value == value) return;
+    matrixSpeed.value = value;
+    if (activeFace is MatrixFace && matrixAnimating.value) forceRefresh();
+  }
+
+  /// Restores the face and enable state that were active before Matrix mode.
+  void restoreFace({required int index, required bool enabled}) {
+    matrixAnimating.value = false;
+    activeFaceIndex.value =
+      ((index % faces.length) + faces.length) % faces.length;
+    if (facesEnabled.value != enabled) {
+      facesEnabled.value = enabled;
+    } else if (enabled) {
+      forceRefresh();
+    }
   }
 
   /// Re-sends the active face even if nothing changed - e.g. after the

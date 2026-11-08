@@ -2,6 +2,7 @@
 
 import 'package:demo_ai_even/views/faces/face_settings_page.dart';
 import 'package:demo_ai_even/views/features/bmp_page.dart';
+import 'package:demo_ai_even/views/features/matrix_page.dart';
 import 'package:demo_ai_even/views/features/notification/notification_page.dart';
 import 'package:demo_ai_even/views/features/text_page.dart';
 import 'package:flutter/material.dart';
@@ -44,6 +45,16 @@ class _FeaturesPageState extends State<FeaturesPage> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const BmpPage()),
+              ),
+            ),
+            _tile(
+              icon: Icons.blur_on,
+              title: 'Matrix',
+              subtitle: 'Fallende Zeichen auf der Brille anzeigen',
+              highlighted: true,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MatrixPage()),
               ),
             ),
             _tile(

@@ -124,6 +124,46 @@ void main() {
   });
 
   group('watch faces', () {
+    testWidgets('matrix face has a stable static frame and moving frames',
+        (tester) async {
+      const face = MatrixFace();
+      final staticData = FaceData(now: DateTime(2026, 9, 28, 14, 5));
+      final first = await tester.runAsync(
+        () => FaceRenderer().renderBits(face, const [], staticData),
+      );
+      final repeated = await tester.runAsync(
+        () => FaceRenderer().renderBits(face, const [], staticData),
+      );
+      final nextFrame = await tester.runAsync(
+        () => FaceRenderer().renderBits(
+          face,
+          const [],
+          FaceData(now: staticData.now, matrixFrame: 1),
+        ),
+      );
+
+      expect(first, hasLength(w * h));
+      expect(repeated, first);
+      expect(nextFrame, hasLength(w * h));
+      final staticBits = first!;
+      expect(nextFrame!.toList(), isNot(staticBits.toList()));
+      expect(staticBits.contains(1), isTrue);
+      expect(staticBits.contains(0), isTrue);
+    });
+
+    test('matrix content key changes only for animated frames', () {
+      const face = MatrixFace();
+      const firstTime = FaceData(now: DateTime(2026, 9, 28, 14, 5));
+      const laterTime = FaceData(now: DateTime(2026, 9, 28, 14, 6));
+      expect(faceContentKey(face, const [], firstTime),
+          faceContentKey(face, const [], laterTime));
+      expect(
+        faceContentKey(face, const [], const FaceData(
+            now: DateTime(2026, 9, 28, 14, 5), matrixFrame: 1)),
+        isNot(faceContentKey(face, const [], firstTime)),
+      );
+    });
+
     testWidgets('every face renders inside the panel', (tester) async {
       final data = FaceData(
         now: DateTime(2026, 9, 28, 14, 5),

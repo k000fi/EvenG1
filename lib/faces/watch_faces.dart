@@ -35,6 +35,8 @@ abstract class WatchFace {
   String get description;
   List<FaceSlot> get slots;
 
+  String contentKey(FaceData data) => Fmt.hhmm(data.now);
+
   void paintBase(Canvas c, FaceData d);
 }
 
@@ -54,7 +56,7 @@ void paintWatchFace(
 /// shows the time) plus what each complication displays.
 String faceContentKey(WatchFace face, List<String> slotIds, FaceData data) => [
       face.id,
-      Fmt.hhmm(data.now),
+  face.contentKey(data),
       for (var i = 0; i < face.slots.length; i++)
         _slotKey(Complications.byId(slotIdAt(face, slotIds, i)), data),
     ].join('|');
@@ -210,5 +212,80 @@ class NumeralsFace extends WatchFace {
   void paintBase(Canvas c, FaceData d) {
     FaceText.paintDigits(c, Fmt.hhmm(d.now), const Rect.fromLTWH(10, 16, 372, 104),
         weight: FontWeight.w800, letterSpacing: -2);
+  }
+}
+
+/// A monochrome falling-glyph pattern rendered into the G1's full-screen BMP.
+class MatrixFace extends WatchFace {
+  const MatrixFace();
+
+  static const _glyphs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  static const _columns = 48;
+  static const _columnWidth = kFaceWidth / _columns;
+  static const _fontSize = 11.0;
+  static const _lineHeight = 12.0;
+  static const _trailRows = 9;
+
+  @override
+  String get id => 'matrix';
+  @override
+  String get name => 'Matrix';
+  @override
+  String get description => 'Fallende Zeichen auf dunklem Hintergrund';
+  @override
+  List<FaceSlot> get slots => const [];
+
+  @override
+  String contentKey(FaceData data) => data.matrixFrame?.toString() ?? 'static';
+
+  @override
+  void paintBase(Canvas canvas, FaceData data) {
+    final frame = data.matrixFrame ?? 0;
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(
+      0, 0, kFaceWidth.toDouble(), kFaceHeight.toDouble()));
+
+    for (var column = 0; column < _columns; column++) {
+      final seed = _seed(column);
+      final trailLength = 4 + seed % (_trailRows - 3);
+      final cycle = kFaceHeight ~/ _lineHeight + trailLength;
+      final headRow = (seed + frame) % cycle;
+      final startY = (headRow - trailLength) * _lineHeight;
+      final glyphRun = StringBuffer();
+      for (var row = 0; row < trailLength; row++) {
+        final charIndex = (seed + frame + row * 17) % _glyphs.length;
+        glyphRun.writeln(_glyphs[charIndex]);
+      }
+
+      final painter = TextPainter(
+        text: TextSpan(
+          text: glyphRun.toString(),
+          style: const TextStyle(
+            color: Color(0xFFB8B8B8),
+            fontFamily: 'monospace',
+            fontSize: _fontSize,
+            height: _lineHeight / _fontSize,
+          ),
+          children: [
+            TextSpan(
+              text: _glyphs[(seed + frame + trailLength * 17) % _glyphs.length],
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: trailLength + 1,
+      )..layout(maxWidth: _columnWidth);
+      painter.paint(canvas, Offset(column * _columnWidth, startY));
+      painter.dispose();
+    }
+
+    canvas.restore();
+  }
+
+  static int _seed(int column) {
+    var value = column * 1103515245 + 12345;
+    value = (value ^ (value >> 16)) & 0x7fffffff;
+    return value;
   }
 }

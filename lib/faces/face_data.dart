@@ -14,6 +14,7 @@ class FaceData {
   final int? batteryL; // 0..100, null = unknown
   final int? batteryR;
   final String customText;
+  final int? matrixFrame;
 
   /// Weather place name; null = not configured.
   final String? weatherPlace;
@@ -31,6 +32,7 @@ class FaceData {
     this.batteryL,
     this.batteryR,
     this.customText = '',
+    this.matrixFrame,
     this.weatherPlace,
     this.weather,
     this.worldPlace,
