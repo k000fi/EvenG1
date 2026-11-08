@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show Color, Paint, Rect;
 
 import 'package:demo_ai_even/faces/face_data.dart';
 import 'package:demo_ai_even/faces/face_renderer.dart';
 import 'package:demo_ai_even/faces/face_scheduler.dart';
+import 'package:demo_ai_even/faces/watch_faces.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Unit tests for the pure-Dart parts of the face pipeline:
@@ -124,6 +126,22 @@ void main() {
   });
 
   group('watch faces', () {
+    testWidgets('ordered dithering represents mid gray with half coverage',
+        (tester) async {
+      final bits = await tester.runAsync(
+        () => FaceRenderer.rasterize(
+          (canvas) => canvas.drawRect(
+            const Rect.fromLTWH(0, 0, 4, 4),
+            Paint()..color = const Color(0xFF808080),
+          ),
+          orderedDither: true,
+        ),
+      );
+
+      expect(bits, isNotNull);
+      expect(bits!.take(16).where((pixel) => pixel == 1).length, 8);
+    });
+
     testWidgets('matrix face has a stable static frame and moving frames',
         (tester) async {
       const face = MatrixFace();
@@ -149,6 +167,26 @@ void main() {
       expect(nextFrame!.toList(), isNot(staticBits.toList()));
       expect(staticBits.contains(1), isTrue);
       expect(staticBits.contains(0), isTrue);
+    });
+
+    testWidgets('matrix trails use fewer lit pixels than hard thresholding',
+        (tester) async {
+      const face = MatrixFace();
+      const data = FaceData(now: DateTime(2026, 9, 28, 14, 5));
+      final dithered = await tester.runAsync(
+        () => FaceRenderer().renderBits(face, const [], data),
+      );
+      final thresholded = await tester.runAsync(
+        () => FaceRenderer.rasterize(
+          (canvas) => paintWatchFace(canvas, face, const [], data),
+        ),
+      );
+
+      expect(dithered, isNotNull);
+      expect(thresholded, isNotNull);
+      final ditheredLit = dithered!.where((pixel) => pixel == 1).length;
+      final thresholdedLit = thresholded!.where((pixel) => pixel == 1).length;
+      expect(ditheredLit, lessThan(thresholdedLit));
     });
 
     test('matrix content key changes only for animated frames', () {

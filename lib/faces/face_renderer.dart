@@ -10,9 +10,8 @@ import 'package:flutter/services.dart';
 ///
 ///   1. paint the face into a 576 x 136 canvas (white on black)
 ///   2. rasterize to RGBA
-///   3. threshold to 1 bit (1 = pixel ON = green). Faces are line art and
-///      text, and a hard threshold keeps their edges crisp; error-diffusion
-///      dithering turned the anti-aliased glyph edges into pixel noise.
+///   3. threshold to 1 bit (1 = pixel ON = green), or use ordered dithering
+///      for the Matrix face's darker trails.
 ///   4. pack to a 9856-byte BMP: 64-byte header (byte-identical to
 ///      assets/images/image_2.bmp) + 9792 bottom-up rows of 72 bytes,
 ///      MSB-first, **inverted** (see [encodeBmp]).
@@ -47,7 +46,10 @@ class FaceRenderer {
   /// (width*height bytes, 1 = ON). Row 0 is the top of the picture.
   Future<Uint8List> renderBits(
           WatchFace face, List<String> slotIds, FaceData data) =>
-      rasterize((canvas) => paintWatchFace(canvas, face, slotIds, data));
+      rasterize(
+        (canvas) => paintWatchFace(canvas, face, slotIds, data),
+        orderedDither: face is MatrixFace,
+      );
 
   /// Full pipeline: face -> 9856-byte BMP file bytes.
   Future<Uint8List> renderBmp(
@@ -57,7 +59,10 @@ class FaceRenderer {
   }
 
   /// Runs [paint] on a black 576 x 136 canvas and returns the 1-bit result.
-  static Future<Uint8List> rasterize(void Function(Canvas canvas) paint) async {
+  static Future<Uint8List> rasterize(
+    void Function(Canvas canvas) paint, {
+    bool orderedDither = false,
+  }) async {
     final recorder = PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.drawRect(
@@ -73,7 +78,33 @@ class FaceRenderer {
     if (byteData == null) {
       throw StateError('toByteData returned null');
     }
-    return threshold(byteData.buffer.asUint8List(byteData.offsetInBytes), width, height);
+    final rgba = byteData.buffer.asUint8List(byteData.offsetInBytes);
+    return orderedDither
+        ? _orderedDither(rgba, width, height)
+        : threshold(rgba, width, height);
+  }
+
+  static const _bayer4 = [
+    [0, 8, 2, 10],
+    [12, 4, 14, 6],
+    [3, 11, 1, 9],
+    [15, 7, 13, 5],
+  ];
+
+  static Uint8List _orderedDither(Uint8List rgba, int w, int h) {
+    final bits = Uint8List(w * h);
+    for (var row = 0; row < h; row++) {
+      for (var column = 0; column < w; column++) {
+        final rgbaOffset = 4 * (row * w + column);
+        final brightness = rgba[rgbaOffset] +
+            rgba[rgbaOffset + 1] +
+            rgba[rgbaOffset + 2];
+        final rank = _bayer4[row % 4][column % 4];
+        final cutoff = 3 * (rank * 16 + 8);
+        if (brightness >= cutoff) bits[row * w + column] = 1;
+      }
+    }
+    return bits;
   }
 
   /// RGBA -> 1 bit (row-major): a pixel is ON when its mean channel value is
