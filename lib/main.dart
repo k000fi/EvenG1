@@ -6,7 +6,6 @@ import 'package:demo_ai_even/services/keepalive_service.dart';
 import 'package:demo_ai_even/services/weather_service.dart';
 import 'package:demo_ai_even/views/home_page.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 
 
@@ -20,10 +19,12 @@ void main() async {
   await WeatherService.get.init();
   await FaceScheduler.get.init();
 
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -31,7 +32,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: HomePage(), 
+      home: const HomePage(),
     );
   }
 }

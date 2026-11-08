@@ -39,7 +39,7 @@ class _EvenAIListPageState extends State<EvenAIListPage> {
       } else {
 
           return Padding(
-              padding: EdgeInsets.only(left: 16, right: 16, top: 4),
+              padding: const EdgeInsets.only(left: 16, right: 16, top: 4),
               child: Column(
                 children: [
                   Expanded(
@@ -78,15 +78,15 @@ class _EvenAIListPageState extends State<EvenAIListPage> {
               child: Container(
                 alignment: Alignment.centerLeft,
                 decoration: BoxDecoration(
-                  color: Color(0xFFFEF991).withOpacity(0.2),
+                  color: const Color(0xFFFEF991).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(5),
                 ),
-                margin: EdgeInsets.only(top: 8, bottom: 8),
+                margin: const EdgeInsets.only(top: 8, bottom: 8),
                 child: Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   child: Text(
                     item.title,
-                    style: TextStyle(fontSize: 20),
+                    style: const TextStyle(fontSize: 20),
                   ),
                 ),
               ),
@@ -99,28 +99,28 @@ class _EvenAIListPageState extends State<EvenAIListPage> {
     return  Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: Color(0xFFFEF991).withOpacity(0.2),
+                  color: const Color(0xFFFEF991).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(5),
                 ),
-                margin: EdgeInsets.only(top: 8, bottom: 8),
+                margin: const EdgeInsets.only(top: 8, bottom: 8),
                 child: Column(
                   children: [
                     Container(
                       alignment: Alignment.centerLeft,
-                      padding: EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(16),
                       child: Text(item.title,
-                               style: TextStyle(fontSize: 20),
+                               style: const TextStyle(fontSize: 20),
                           ),
                     ),
                     Container(
                       alignment: Alignment.centerLeft,
-                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
                         item.content,
-                        style: TextStyle(fontSize: 15),
+                        style: const TextStyle(fontSize: 15),
                       ),
                     ),
-                    SizedBox(height: 16)
+                    const SizedBox(height: 16)
                   ],
                 ),
               ),

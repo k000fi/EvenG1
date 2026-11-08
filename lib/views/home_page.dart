@@ -249,7 +249,7 @@ class _HomePageState extends State<HomePage> {
                                         fontSize: 14,
                                         color: BleManager.get().isConnected
                                             ? Colors.black
-                                            : Colors.grey.withOpacity(0.5)),
+                                            : Colors.grey.withValues(alpha: 0.5)),
                                     textAlign: TextAlign.center,
                                   ),
                           ),

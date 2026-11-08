@@ -94,11 +94,11 @@ class FaceRenderer {
   static Uint8List _orderedDither(Uint8List rgba, int w, int h) {
     final bits = Uint8List(w * h);
     for (var row = 0; row < h; row++) {
+      if (row == 0 || row == h - 1) continue;
       for (var column = 0; column < w; column++) {
         final rgbaOffset = 4 * (row * w + column);
-        final brightness = rgba[rgbaOffset] +
-            rgba[rgbaOffset + 1] +
-            rgba[rgbaOffset + 2];
+        final brightness =
+            rgba[rgbaOffset] + rgba[rgbaOffset + 1] + rgba[rgbaOffset + 2];
         final rank = _bayer4[row % 4][column % 4];
         final cutoff = 3 * (rank * 16 + 8);
         if (brightness >= cutoff) bits[row * w + column] = 1;
@@ -129,8 +129,8 @@ class FaceRenderer {
   /// payload agrees: 71 % of its bytes are 0xFF, i.e. unlit background.
   /// We therefore start from all-ones and clear the bits that light up.
   static Uint8List encodeBmp(Uint8List bits, {required Uint8List header}) {
-    assert(bits.length == width * height,
-        'bits must be ${width * height} bytes');
+    assert(
+        bits.length == width * height, 'bits must be ${width * height} bytes');
     assert(header.length == 64, 'header must be 64 bytes');
 
     final px = Uint8List(pixelBytes)..fillRange(0, pixelBytes, 0xFF);

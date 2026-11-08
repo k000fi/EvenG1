@@ -102,13 +102,14 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
 
   // ---------------------------------------------------------------- pieces
 
-  Widget _card({required Widget child, EdgeInsets? padding}) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(kRadius),
+  Widget _card({required Widget child, EdgeInsets? padding}) => Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(kRadius),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: padding ?? const EdgeInsets.all(16),
+          child: child,
         ),
-        padding: padding ?? const EdgeInsets.all(16),
-        child: child,
       );
 
   Widget _sectionLabel(String text) => Padding(
@@ -126,7 +127,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
 
   Widget _hint(String text) => Text(
         text,
-        style: const TextStyle(fontSize: 12, height: 1.35, color: Colors.black54),
+        style:
+            const TextStyle(fontSize: 12, height: 1.35, color: Colors.black54),
       );
 
   Widget _masterSwitch(FaceScheduler fs) => Obx(() {
@@ -139,7 +141,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
           padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
           child: Row(
             children: [
-              Icon(Icons.watch_outlined, color: on ? kPanelGreen : Colors.black38),
+              Icon(Icons.watch_outlined,
+                  color: on ? kPanelGreen : Colors.black38),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -168,7 +171,7 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
               ),
               Switch(
                 value: on,
-                activeColor: kPanelGreen,
+                activeThumbColor: kPanelGreen,
                 onChanged: (v) => fs.facesEnabled.value = v,
               ),
             ],
@@ -185,7 +188,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                 Icon(Icons.help_outline, size: 18, color: Colors.black54),
                 SizedBox(width: 8),
                 Text('So funktioniert es',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               ],
             ),
             const SizedBox(height: 12),
@@ -204,7 +208,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
         ),
       );
 
-  Widget _bullet(IconData icon, String title, String body, {bool last = false}) =>
+  Widget _bullet(IconData icon, String title, String body,
+          {bool last = false}) =>
       Padding(
         padding: EdgeInsets.only(bottom: last ? 0 : 14),
         child: Row(
@@ -258,7 +263,9 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           FacePreview(
-                              face: face, slotIds: fs.slotsFor(face), data: data),
+                              face: face,
+                              slotIds: fs.slotsFor(face),
+                              data: data),
                           const SizedBox(height: 10),
                           Row(
                             children: [
@@ -268,7 +275,9 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                                   style: TextStyle(
                                     fontSize: 15.5,
                                     fontWeight: FontWeight.w600,
-                                    color: isActive ? Colors.white : Colors.black87,
+                                    color: isActive
+                                        ? Colors.white
+                                        : Colors.black87,
                                   ),
                                 ),
                               ),
@@ -321,7 +330,10 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               FacePreview(
-                  face: face, slotIds: ids, data: fs.snapshot(), showSlots: true),
+                  face: face,
+                  slotIds: ids,
+                  data: fs.snapshot(),
+                  showSlots: true),
               const SizedBox(height: 6),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -362,7 +374,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(face.slots[i].label,
-                        style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.black54)),
                     const SizedBox(height: 1),
                     Text(c.name,
                         style: const TextStyle(
@@ -438,7 +451,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : (w != null
-                      ? Text('${w.temperature.round()}° · ${Fmt.hhmm(w.fetchedAt)}',
+                      ? Text(
+                          '${w.temperature.round()}° · ${Fmt.hhmm(w.fetchedAt)}',
                           style: const TextStyle(
                               fontSize: 12, color: Colors.black54))
                       : null),
@@ -476,7 +490,8 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         leading: Icon(icon, color: const Color(0xFF1F9D57)),
         title: Text(title,
-            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+            style:
+                const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
         subtitle: Text(place?.label ?? 'Nicht gewählt – antippen'),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -551,7 +566,7 @@ class _FaceSettingsPageState extends State<FaceSettingsPage> {
                     ),
                     Switch(
                       value: fs.keepAliveEnabled.value,
-                      activeColor: kPanelGreen,
+                      activeThumbColor: kPanelGreen,
                       onChanged: (v) => fs.keepAliveEnabled.value = v,
                     ),
                   ],
@@ -616,7 +631,8 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
       setState(() => _results = r);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = 'Suche fehlgeschlagen – Internetverbindung prüfen');
+      setState(
+          () => _error = 'Suche fehlgeschlagen – Internetverbindung prüfen');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -625,7 +641,8 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SafeArea(
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.6,
@@ -653,7 +670,8 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
                             child: SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2)),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
                           )
                         : null,
                     filled: true,
@@ -775,7 +793,8 @@ class _PreviewPainter extends CustomPainter {
         ..strokeWidth = 1.5 / scale;
       for (final slot in face.slots) {
         canvas.drawRRect(
-            RRect.fromRectAndRadius(slot.rect.inflate(3), const Radius.circular(6)),
+            RRect.fromRectAndRadius(
+                slot.rect.inflate(3), const Radius.circular(6)),
             outline);
       }
     }

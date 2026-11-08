@@ -8,10 +8,9 @@ import 'package:demo_ai_even/faces/face_scheduler.dart';
 import 'package:demo_ai_even/faces/watch_faces.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Unit tests for the pure-Dart parts of the face pipeline:
-/// Floyd-Steinberg dithering and the 9856-byte BMP packing that the
-/// G1 firmware expects (64-byte template header + 9792 px, bottom-up,
-/// MSB-first, 72 bytes/row).
+/// Renderer tests for pixel thresholding, ordered dithering, and the 9856-byte
+/// BMP packing that the G1 firmware expects (64-byte template header + 9792 px,
+/// bottom-up, MSB-first, 72 bytes/row).
 void main() {
   const int w = 576;
   const int h = 136;
@@ -91,9 +90,7 @@ void main() {
         decodePxBits(file),
         [
           for (var i = 0; i < w * h; i++)
-            (i == 0 || i == w - 1 || i == (h - 1) * w || i == h * w - 1)
-                ? 1
-                : 0
+            (i == 0 || i == w - 1 || i == (h - 1) * w || i == h * w - 1) ? 1 : 0
         ],
       );
     });
@@ -131,7 +128,7 @@ void main() {
       final bits = await tester.runAsync(
         () => FaceRenderer.rasterize(
           (canvas) => canvas.drawRect(
-            const Rect.fromLTWH(0, 0, 4, 4),
+            const Rect.fromLTWH(10, 10, 4, 4),
             Paint()..color = const Color(0xFF808080),
           ),
           orderedDither: true,
@@ -139,7 +136,13 @@ void main() {
       );
 
       expect(bits, isNotNull);
-      expect(bits!.take(16).where((pixel) => pixel == 1).length, 8);
+      var litPixels = 0;
+      for (var row = 10; row < 14; row++) {
+        for (var column = 10; column < 14; column++) {
+          if (bits![row * FaceRenderer.width + column] == 1) litPixels++;
+        }
+      }
+      expect(litPixels, 8);
     });
 
     testWidgets('matrix face has a stable static frame and moving frames',
@@ -172,7 +175,7 @@ void main() {
     testWidgets('matrix trails use fewer lit pixels than hard thresholding',
         (tester) async {
       const face = MatrixFace();
-      const data = FaceData(now: DateTime(2026, 9, 28, 14, 5));
+      final data = FaceData(now: DateTime(2026, 9, 28, 14, 5));
       final dithered = await tester.runAsync(
         () => FaceRenderer().renderBits(face, const [], data),
       );
@@ -189,15 +192,40 @@ void main() {
       expect(ditheredLit, lessThan(thresholdedLit));
     });
 
+    testWidgets('matrix renders a complete G1 BMP', (tester) async {
+      final bmp = await tester.runAsync(
+        () => FaceRenderer().renderBmp(
+          const MatrixFace(),
+          const [],
+          FaceData(
+            now: DateTime(2026, 9, 28, 14, 5),
+            matrixFrame: 42,
+          ),
+        ),
+      );
+
+      expect(bmp, hasLength(FaceRenderer.bmpBytes));
+      expect(bmp!.sublist(0, 2), [0x42, 0x4d]);
+      expect(bmp.sublist(0, 64), await FaceRenderer().header());
+      final bits = decodePxBits(bmp);
+      expect(bits.contains(1), isTrue);
+      expect(bits.contains(0), isTrue);
+      for (final y in [0, h - 1]) {
+        for (var x = 0; x < w; x++) {
+          expect(bits[y * w + x], 0, reason: 'pixel ($x,$y)');
+        }
+      }
+    });
+
     test('matrix content key changes only for animated frames', () {
       const face = MatrixFace();
-      const firstTime = FaceData(now: DateTime(2026, 9, 28, 14, 5));
-      const laterTime = FaceData(now: DateTime(2026, 9, 28, 14, 6));
+      final firstTime = FaceData(now: DateTime(2026, 9, 28, 14, 5));
+      final laterTime = FaceData(now: DateTime(2026, 9, 28, 14, 6));
       expect(faceContentKey(face, const [], firstTime),
           faceContentKey(face, const [], laterTime));
       expect(
-        faceContentKey(face, const [], const FaceData(
-            now: DateTime(2026, 9, 28, 14, 5), matrixFrame: 1)),
+        faceContentKey(face, const [],
+            FaceData(now: DateTime(2026, 9, 28, 14, 5), matrixFrame: 1)),
         isNot(faceContentKey(face, const [], firstTime)),
       );
     });

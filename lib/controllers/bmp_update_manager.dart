@@ -3,7 +3,20 @@ import 'dart:typed_data';
 
 import 'package:crclib/catalog.dart';
 import 'package:demo_ai_even/ble_manager.dart';
+import 'package:demo_ai_even/services/ble.dart';
 import 'package:demo_ai_even/utils/utils.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+
+typedef BmpDataSender = Future<void> Function(
+  Uint8List data, {
+  required String lr,
+});
+
+typedef BmpResponseRequester = Future<BleReceive> Function(
+  Uint8List data, {
+  required String lr,
+  required int timeoutMs,
+});
 
 /// BMP transfer to the glasses, in three phases (see
 /// docs/G1_PROTOCOL_REFERENCE.md §3.1):
@@ -21,6 +34,23 @@ import 'package:demo_ai_even/utils/utils.dart';
 /// [updateBmpBothArms] implements the ordered variant.
 class BmpUpdateManager {
   static const int _packLen = 194; //198;
+
+  BmpUpdateManager({
+    BmpDataSender? sendData,
+    BmpResponseRequester? request,
+  })  : _sendData = sendData ?? _sendWithBle,
+        _request = request ?? _requestWithBle;
+
+  final BmpDataSender _sendData;
+  final BmpResponseRequester _request;
+
+  static Future<void> _sendWithBle(Uint8List data, {required String lr}) async {
+    await BleManager.sendData(data, lr: lr);
+  }
+
+  static Future<BleReceive> _requestWithBle(Uint8List data,
+          {required String lr, required int timeoutMs}) =>
+      BleManager.request(data, lr: lr, timeoutMs: timeoutMs);
 
   /// Number of transfers currently on the wire. The face pump uses this to
   /// stay off the link while e.g. the BMP demo page is sending.
@@ -77,12 +107,12 @@ class BmpUpdateManager {
 
     // The chunk index is a single byte on the wire - refuse rather than wrap.
     if (multiPacks.length > 256) {
-      print('BmpUpdate -> $lr: ${multiPacks.length} packs exceed the 1-byte '
+        debugPrint('BmpUpdate -> $lr: ${multiPacks.length} packs exceed the 1-byte '
           'index, aborting');
       return false;
     }
 
-    print('BmpUpdate -> $lr: sending ${multiPacks.length} packs');
+    debugPrint('BmpUpdate -> $lr: sending ${multiPacks.length} packs');
 
     for (int index = 0; index < multiPacks.length; index++) {
       if (seq != null && index < seq) continue;
@@ -94,7 +124,7 @@ class BmpUpdateManager {
               [0x15, index & 0xff, 0x00, 0x1c, 0x00, 0x00], pack)
           : Utils.addPrefixToUint8List([0x15, index & 0xff], pack);
 
-      await BleManager.sendData(data, lr: lr);
+      await _sendData(data, lr: lr);
       await Future.delayed(
         Duration(milliseconds: Platform.isIOS ? 8 : 5), // 4 6 10 14 30 / 5
       );
@@ -106,19 +136,19 @@ class BmpUpdateManager {
   Future<bool> _sendEnd(String lr) async {
     const maxRetryTime = 10;
     for (var attempt = 0; attempt < maxRetryTime; attempt++) {
-      final ret = await BleManager.request(
+      final ret = await _request(
         Uint8List.fromList([0x20, 0x0d, 0x0e]),
         lr: lr,
         timeoutMs: 3000,
       );
       if (ret.isTimeout) {
-        print('BmpUpdate -> $lr: end marker timed out (${attempt + 1}'
+        debugPrint('BmpUpdate -> $lr: end marker timed out (${attempt + 1}'
             '/$maxRetryTime)');
         await Future.delayed(const Duration(seconds: 1));
         continue;
       }
       final ok = ret.data.length > 1 && ret.data[1].toInt() == 0xc9;
-      if (!ok) print('BmpUpdate -> $lr: end marker rejected: ${ret.data}');
+      if (!ok) debugPrint('BmpUpdate -> $lr: end marker rejected: ${ret.data}');
       return ok;
     }
     return false;
@@ -135,22 +165,23 @@ class BmpUpdateManager {
       val & 0xff,
     ]);
 
-    final ret = await BleManager.request(
+    final ret = await _request(
       Utils.addPrefixToUint8List([0x16], crc),
       lr: lr,
+      timeoutMs: 1000,
     );
 
     if (ret.isTimeout) {
-      print('BmpUpdate -> $lr: CRC check timed out');
+      debugPrint('BmpUpdate -> $lr: CRC check timed out');
       return false;
     }
     // Reply is [0x16, ..., 0xC9] - guard the index, a short reply used to
     // throw a RangeError right here.
-    if (ret.data.length > 5 && ret.data[5].toInt() != 0xc9) {
-      print('BmpUpdate -> $lr: CRC check failed: ${ret.data}');
-      return false;
+    final ok = ret.data.length > 5 && ret.data[5].toInt() == 0xc9;
+    if (!ok) {
+      debugPrint('BmpUpdate -> $lr: CRC check failed: ${ret.data}');
     }
-    return true;
+    return ok;
   }
 
   Uint8List prependAddress(Uint8List image) {

@@ -133,7 +133,7 @@ class EvenAI {
     _recordingTimer = null;
 
     await BleManager.invokeMethod("stopEvenAI");
-    await Future.delayed(Duration(seconds: 2)); // todo
+    await Future.delayed(const Duration(seconds: 2)); // todo
 
     print("recordOverByOS----startSendReply---pre------combinedText-------*$combinedText*---");
 
@@ -221,7 +221,7 @@ class EvenAI {
       await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
       
       // Send 0x40 after 3 seconds
-      await Future.delayed(Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 3));
       // If already switched to manual mode, no need to send 0x40.
       if (_isManual) {
         return;
@@ -237,7 +237,7 @@ class EvenAI {
 
       // // The glasses need to have 0x30 before they can process 0x40
       await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-      await Future.delayed(Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 3));
       if (_isManual) {
         return;
       }
@@ -250,7 +250,7 @@ class EvenAI {
           list.sublist(0, 5).map((str) => '$str\n').join();
       // // The glasses need to have 0x30 before they can process 0x40
       await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-      await Future.delayed(Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 3));
       if (_isManual) {
         return;
       }
@@ -441,7 +441,7 @@ class EvenAI {
         '${DateTime.now()} openEvenAIMic---isStartSucc----$isStartSucc----micStartMs---$micStartMs---');
     
     if (!isStartSucc && isReceivingAudio && isRunning) {
-      await Future.delayed(Duration(seconds: 1));
+      await Future.delayed(const Duration(seconds: 1));
       await openEvenAIMic();
     }
   }
@@ -497,7 +497,7 @@ extension EvenAIDataMethod on EvenAI {
         .toList();
     List<String> ret = [];
 
-    TextStyle ts = TextStyle(fontSize: fontSize);
+    TextStyle ts = const TextStyle(fontSize: fontSize);
 
     for (String paragraph in paragraphs) {
       final textSpan = TextSpan(text: paragraph, style: ts);
